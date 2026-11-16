@@ -69,12 +69,18 @@ thread main(void)
      * sobre la pila de quien lo llama, asi que necesita una hebra que pueda
      * morir con el: el exit() del app es kill(gettid()) y kill() suelta el bloque
      * de PSRAM.  RESCHED_NO para que main() siga colocando el arranque. */
-   /* if (SYSERR == ready(create_on(1, launcherTask, LAUNCHER_STK, INITPRIO,
-                                   "launcher", 0), RESCHED_NO))
+
+    if (SYSERR == ready(create_on(1, netBootTask, 16 * 1024, INITPRIO,
+                                   "netboot", 0), RESCHED_YES))
     {
         kprintf("WARNING: Failed to create launcher\r\n");
-    }*/
-    launch(launcherTask, 20 * 1024, "launcher");
+    }
+    if (SYSERR == ready(create_on(1, launcherTask, 16 * 1024, INITPRIO,
+                                   "launcher", 0), RESCHED_YES))
+    {
+        kprintf("WARNING: Failed to create launcher\r\n");
+    }
+   // launch(launcherTask, 20 * 1024, "launcher");
 
     /* 3. La red, en core 0 y sin bloquear el arranque.  netBootTask() duerme
      * 10 s de margen para el C6 antes de tocar nada: para entonces el launcher ya
@@ -83,7 +89,7 @@ thread main(void)
      * shell salga aunque la asociacion/DHCP tarde o falle. Los servidores que
      * lanza se crean con afinidad a core 1. */
 
-    launch(netBootTask, 16 * 1024, "netboot");
+    //launch(netBootTask, 16 * 1024, "netboot");
 
     print_os_info();
 

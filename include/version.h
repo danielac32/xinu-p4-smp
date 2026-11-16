@@ -1,1 +1,1 @@
-#define VERSION "(Embedded Xinu) (esp32p4) #342 (root@fedora) sáb 14 nov 2026 09:38:00 -04"
+#define VERSION "(Embedded Xinu) (esp32p4) #358 (root@fedora) dom 15 nov 2026 11:38:15 -04"
