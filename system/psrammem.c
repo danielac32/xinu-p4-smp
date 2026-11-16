@@ -218,6 +218,8 @@ uintptr_t psram_free_bytes(void)
     struct memblock *memptr;
     uintptr_t free_mem = 0;
     uint n = 0;
+    irqmask im = disable();   /* SMP: recorrer psramlist sin BKL lee punteros
+                               * a medias de psram_getmem/psram_freemem. */
 
     for (memptr = psramlist.next; memptr != NULL; memptr = memptr->next)
     {
@@ -229,6 +231,7 @@ uintptr_t psram_free_bytes(void)
             break;
         }
     }
+    restore(im);
     return free_mem;
 }
 

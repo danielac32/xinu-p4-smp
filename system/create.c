@@ -89,6 +89,17 @@ tid_typ create(void *procaddr, uint ssize, int priority,
     thrptr->stk_overflow = FALSE;
     thrptr->gen++;              /* distingue este uso del slot del anterior */
 
+    /* SMP: limpiar estado heredado de un uso anterior del slot.  Sin esto,
+     * un kill remoto pendiente (stk_pad[0]) mataria a la nueva hebra en su
+     * primer resched, y los campos elf_* heredados pueden liberar un bloque
+     * PSRAM que pertenece a otra app. */
+    thrptr->stk_pad[0] = 0;     /* kill_pending */
+    thrptr->stk_pad[1] = 0;
+    thrptr->stk_pad[2] = 0;
+    thrptr->elf_task = FALSE;
+    thrptr->elf_img = NULL;
+    thrptr->elf_size = 0;
+
     /* SMP: afinidad (core0 por defecto) */
     thrptr->cpu_home = 0;
     thrptr->cpu_last = 0;
@@ -188,6 +199,14 @@ tid_typ create_on(uint8 core, void *procaddr, uint ssize, int priority,
     thrptr->stk_peak = 0;
     thrptr->stk_overflow = FALSE;
     thrptr->gen++;
+
+    /* SMP: limpiar estado heredado del slot (ver create()). */
+    thrptr->stk_pad[0] = 0;
+    thrptr->stk_pad[1] = 0;
+    thrptr->stk_pad[2] = 0;
+    thrptr->elf_task = FALSE;
+    thrptr->elf_img = NULL;
+    thrptr->elf_size = 0;
 
     /* SMP: afinidad explícita */
     thrptr->cpu_home = core;

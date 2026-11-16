@@ -48,5 +48,11 @@ int platforminit(void)
     /* mtime sampling mode = 3 (CLINT_MTIMECTL |= 3 << 4). */
     P4_MTIMECTL |= (3UL << 4);
 
+    /* SYSTIMER target1 dara el tick al core1 (mtimecmp1 no entrega IRQ). */
+    {
+        extern void core1_timer_init_primary(void);
+        core1_timer_init_primary();
+    }
+
     return OK;
 }

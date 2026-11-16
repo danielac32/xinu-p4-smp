@@ -150,11 +150,20 @@ static void elf_cache_sync(uintptr_t addr, uintptr_t size, uint32_t op)
 {
     uintptr_t fin;
     unsigned  intentos;
+    irqmask   im;
 
     if (0U == size)
     {
         return;
     }
+
+    /* SMP: los registros CACHE.sync_* son un unico bloque MMIO compartido
+     * por ambos cores.  Sin exclusion, dos elf_load() concurrentes se
+     * sobrescriben sync_addr/size/ctrl y pueden retornar creyendo que su
+     * writeback termino cuando en realidad otro core reemplazo la operacion
+     * (cabeceras de app sucias tapando el codigo -> mcause=2/5).  El BKL
+     * serializa la secuencia completa de programacion + espera. */
+    im = disable();
 
     /* Redondeo HACIA ABAJO: el bloque puede empezar en mitad de una linea que
      * comparte con la cabecera que psram_malloc escribio por 0x48, y esa es
@@ -171,9 +180,11 @@ static void elf_cache_sync(uintptr_t addr, uintptr_t size, uint32_t op)
     {
         if (0U == (CACHE.sync_ctrl.val & op))
         {
+            restore(im);
             return;
         }
     }
+    restore(im);
     printf("elfload: AVISO: operacion de cache 0x%x sobre 0x%08lx no termino\r\n",
            (unsigned)op, (unsigned long)addr);
 }
@@ -790,12 +801,18 @@ int elf_run(const char *ruta, int argc, char *argv[])
      * exit(), elf_exit() hace kill(gettid()) y es kill() quien suelta el
      * bloque (system/kill.c).  Si el app volviera sin exit --un _start
      * propio--, aqui se desmarcan y se suelta igual. */
-    yo = &thrtab[thrcurrent];
-    yo->elf_task = TRUE;
-    yo->elf_img  = (void *)((struct memblock *)img.bloque - 1);
-    yo->elf_size = img.tam + 2U * LINEA_CACHE + sizeof(struct memblock);
-
-    elf_actual = &img;
+    /* SMP: publicar los campos ELF bajo BKL.  kill()/elf_exit() los leen
+     * desde el mismo u otro core; una ventana a medias puede liberar un
+     * bloque PSRAM dos veces o no liberarlo. */
+    {
+        irqmask im = disable();
+        yo = &thrtab[thrcurrent];
+        yo->elf_task = TRUE;
+        yo->elf_img  = (void *)((struct memblock *)img.bloque - 1);
+        yo->elf_size = img.tam + 2U * LINEA_CACHE + sizeof(struct memblock);
+        elf_actual = &img;
+        restore(im);
+    }
 
     /*printf("elfload: %s: argc=%d", img.nombre, n);
     for (i = 0; i < n; i++)
@@ -806,10 +823,14 @@ int elf_run(const char *ruta, int argc, char *argv[])
 
     rv = ((int (*)(int, char *[]))(uintptr_t)img.entrada)(n, v);
 
-    yo->elf_task = FALSE;
-    yo->elf_img  = NULL;
-    yo->elf_size = 0;
-    elf_actual = NULL;
+    {
+        irqmask im = disable();
+        yo->elf_task = FALSE;
+        yo->elf_img  = NULL;
+        yo->elf_size = 0;
+        elf_actual = NULL;
+        restore(im);
+    }
 
     psram_free(img.bloque);             /* el bloque del app vuelve al heap     */
     img.bloque = NULL;

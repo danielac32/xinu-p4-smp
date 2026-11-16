@@ -9,6 +9,7 @@
 #include <memory.h>
 
 extern void xdone(void);
+extern void send_ipi(int cpu);
 
 /**
  * @ingroup threads
@@ -39,10 +40,16 @@ syscall kill(tid_typ tid)
     thrptr = &thrtab[tid];
     cid = cpu_id();
 
-    /* Si la hebra es THRCURR en otro núcleo, diferir al núcleo dueño. */
+    /* Si la hebra es THRCURR en otro núcleo, diferir al núcleo dueño.
+     * El punto seguro esta en resched.c (stk_pad[0]); hay que despertar al
+     * core destino con una IPI para que entre en resched y lo procese.  Sin
+     * IPI la victima podria estar en wfi/cpu-bound y el kill no se completaria
+     * nunca.  El flag se publica con fence antes de la IPI. */
     if (THRCURR == thrptr->state && thrptr->cpu_last != (uint8_t)cid)
     {
         thrptr->stk_pad[0] = 1; /* kill_pending */
+        __asm__ volatile("fence rw, rw" ::: "memory");
+        send_ipi((int)thrptr->cpu_last);
         restore(im);
         return OK;
     }

@@ -31,22 +31,29 @@ interrupt clkhandler(void)
 {
     irqmask im;
 
-    /* Core1: solo tick de preempción local (si recibe IRQ de timer). */
+    /* Ambas ramas bajo BKL: cpu_ticks en thrtab[] es compartida y la leen
+     * taskmon/ps desde el otro core. */
+    im = disable();
+
+    /* Core1: el tick lo genera la IRQ del SYSTIMER target1, que llama aqui
+     * desde core1_sdio_handler (cpu_id()==1).  Hacemos el bookkeeping local
+     * de core1 y resched de sus tareas; NO tocamos clktotal/clktime (que son
+     * del core0) ni el sleepq global.  El comparador ya lo rearmo el handler
+     * del SYSTIMER antes de llamarnos. */
     if (cpu_id() != 0)
     {
-        clkupdate1(platform.clkfreq / CLKTICKS_PER_SEC);
         core1_ticks++;
         if (thrcurrent >= 0 && thrcurrent < NTHREAD)
         {
             thrtab[thrcurrent].cpu_ticks++;
         }
         resched();
+        restore(im);
         return;
     }
 
-    im = disable();
-
     clkupdate(platform.clkfreq / CLKTICKS_PER_SEC);
+
 
     /* Another clock tick passes. */
     clkticks++;

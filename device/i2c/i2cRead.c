@@ -19,14 +19,16 @@ bool i2cDevRead(uint8_t dev, uint8_t *data, size_t len)
 {
     bool ok;
 
-    /*if (SYSERR == i2cmon)
+    if (SYSERR == i2cmon)
     {
         return FALSE;
-    }*/
+    }
 
-    //lock(i2cmon);
+    /* SMP: el bus I2C0 es compartido (audio/power/touch); sin el monitor,
+     * dos cores intercalan START/FIFO/STOP en el mismo controlador. */
+    lock(i2cmon);
     ok = i2c_read(dev, data, len);
-    //unlock(i2cmon);
+    unlock(i2cmon);
 
     return ok;
 }

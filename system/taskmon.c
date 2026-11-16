@@ -45,6 +45,7 @@ int taskmon_get(struct taskmon_row *out, int max)
         out[n].stk_peak = (ulong)stack_peak(i);
         out[n].stk_total = (ulong)stack_total(i);
         out[n].elf_task = thrptr->elf_task ? 1 : 0;
+        out[n].cpu = (int)thrptr->cpu_last;   /* core real donde ejecuto     */
         strlcpy(out[n].name, thrptr->name, TASKMON_NAME);
 
         n++;

@@ -1020,7 +1020,8 @@ shellcmd xsh_udpserver(int nargs, char *args[])
         return SHELL_OK;
     }
 
-    tid = create_on(1, (void *)udpServer, UDPSERVER_STK, INITPRIO, "UDPSERVER",
+    /* SMP: balanceo con afinidad estatica, igual que httpd (core0). */
+    tid = create_on(0, (void *)udpServer, UDPSERVER_STK, INITPRIO, "UDPSERVER",
                      2, ethdev, port);
     if (SYSERR == tid)
     {

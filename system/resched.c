@@ -10,8 +10,18 @@
 #include <memory.h>
 #include <stack.h>
 #include <spinlock.h>
+#include <platform.h>
 
 extern void ctxsw(void *, void *, uchar);
+extern uint64_t mtime64_public(void);
+
+/* CPU% real: timestamp de cuando entro cada core en la tarea actual (ciclos
+ * mtime).  Al hacer ctxsw acumulamos los CICLOS transcurridos en un array
+ * separado por tid.  Se usa resolucion de ciclo (no ms) porque las tareas
+ * I/O-bound trabajan menos de 1 ms por cambio de contexto y redondearian a 0.
+ * cpu_ticks (en ms) se deja intacto: lo usa taskmon y la app tareas.elf. */
+static uint64_t cpu_entered[2];
+volatile uint64_t cpu_cycles[NTHREAD];
 
 /**
  * @ingroup threads
@@ -83,6 +93,16 @@ int resched(void)
 
     asid = thrcurrent & 0xff;
 
+    /* Medir ciclos de CPU del hilo saliente con resolucion de mtime. */
+    {
+        uint32_t core = (uint32_t)cpu_id();
+        uint64_t now = mtime64_public();
+        if (cpu_entered[core] != 0ULL && now >= cpu_entered[core])
+        {
+            cpu_cycles[thrcurrent] += (now - cpu_entered[core]);
+        }
+    }
+
     /* Handoff del BKL a través del cambio de contexto. */
     throld->klock_depth = (uint16_t)c->nest;
     c->nest = 0;
@@ -95,6 +115,7 @@ int resched(void)
 
     /* al reanudarse este hilo */
     c = thiscpu();
+    cpu_entered[(uint32_t)cpu_id()] = mtime64_public();
     c->nest = throld->klock_depth;
     if (c->nest > 0)
     {

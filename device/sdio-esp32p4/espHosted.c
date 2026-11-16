@@ -25,6 +25,7 @@
 #include <interrupt.h>
 #include <sdmmc.h>
 #include <string.h>
+#include <monitor.h>
 #include "esp_hosted.h"
 
 /*
@@ -65,6 +66,13 @@ static esp_hosted_cb_slot_t s_ctrl_cb;
 static esp_hosted_cb_slot_t s_ble_evt_cb;
 static esp_hosted_cb_slot_t s_ble_acl_cb;
 static esp_hosted_cb_slot_t s_priv_cb;
+
+/* SMP: unico lock de TX para TODAS las interfaces (datos STA/AP/ETH en core1
+ * + RPC/control en core0).  s_ctx.tx_frame de 2 KB es compartido y la cabecera
+ * (seq_num/checksum) se construye fuera de sdmmcBusLock; sin este monitor dos
+ * cores intercalan dos tramas y el C6 descarta por checksum.  Monitor (no BKL)
+ * porque sdmmcBusLock() duerme y no se puede dormir con el BKL tomado. */
+static monitor s_tx_lock = SYSERR;
 
 static void esp_hosted_reset_state(void)
 {
@@ -213,25 +221,41 @@ static size_t esp_hosted_tx_common(esp_hosted_if_t if_type,
                                    size_t len)
 {
     esp_hosted_frame_info_t info = {0};
+    size_t written;
 
     if (!s_initialized || s_transport.tx == NULL || (payload == NULL && len != 0U) || len > UINT16_MAX)
     {
         return 0U;
     }
 
+    /* SMP: todo el camino de TX (construccion de cabecera + CMD53) bajo un
+     * unico monitor compartido por datos y RPC.  s_tx_lock es reentrante por
+     * hilo, asi que puede anidarse dentro de ethptr->lock sin deadlock. */
+    if (s_tx_lock == SYSERR)
+    {
+        return 0U;
+    }
+    lock(s_tx_lock);
+
     info.if_type = if_type;
     info.if_num = if_num;
     info.payload_len = (uint16_t)len;
-    info.seq_num = ++s_tx_seq_num;
     info.hci_pkt_type = hci_pkt_type;
     info.priv_pkt_type = priv_pkt_type;
+    info.seq_num = ++s_tx_seq_num;
 
-    return s_transport.tx(&info, payload, len, s_transport.ctx);
+    written = s_transport.tx(&info, payload, len, s_transport.ctx);
+    unlock(s_tx_lock);
+    return written;
 }
 
 bool esp_hosted_init(const esp_hosted_transport_t *transport)
 {
     esp_hosted_reset_state();
+    if (s_tx_lock == SYSERR)
+    {
+        s_tx_lock = moncreate();
+    }
     s_initialized = true;
     return esp_hosted_set_transport(transport);
 }

@@ -340,7 +340,7 @@ SECTIONS
     .core1stk (NOLOAD) : ALIGN(16)
     {
         _core1stk = .;
-        . = . + 2048;
+        . = . + 8192;   /* 8 KB: resched/ctxsw + IRQ de timer + IPI anidada */
         _core1stk_end = .;
     } > HP_L2MEM
 

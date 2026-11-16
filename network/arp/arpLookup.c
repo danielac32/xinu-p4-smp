@@ -73,6 +73,11 @@ syscall arpLookup(struct netif *netptr, const struct netaddr *praddr,
         {
             netaddrcpy(hwaddr, &entry->hwaddr);
             ARP_TRACE("Entry exists");
+            /* SMP: restore(im) era omitido aqui.  Esta es la rama normal
+             * (ARP ya resuelto = cada paquete), asi que cada envio fugaba
+             * el BKL (kernel_lock tomado + IRQs off) hasta el proximo
+             * resched, congelando el otro core.  Causa del lag de red. */
+            restore(im);
             return OK;
         }
 

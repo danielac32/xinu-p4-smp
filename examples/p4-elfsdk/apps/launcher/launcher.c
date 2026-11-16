@@ -392,6 +392,12 @@ static void pantalla_home(struct launcher *l)
 {
     l->pagina = P_HOME;
     l->page = 0;
+    /* SMP: borrar primero los lv_img (bajo lvgl_lock dentro de
+     * ui_buttons_clear) y solo despues scan_apps(), que llama a
+     * free_app_icons(): si se liberan los pixeles antes de que LVGL suelte
+     * las imagenes que los referencian, lvglui (core0) puede renderizar
+     * memoria ya liberada. */
+    ui_buttons_clear(l->g);
     scan_apps(l);
     chip_set(l, "Launcher");
     home_draw(l);

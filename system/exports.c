@@ -67,6 +67,10 @@
 #include <fslock.h>                 /* candado FAT/microSD                        */
 #include <exports.h>
 #include <taskmon.h>              /* taskmon_get: la tabla de tareas hecha ELF  */
+
+/* CPU% real: ver system/resched.c y system/platforms/esp32p4/riscvclk.c */
+extern volatile unsigned long long cpu_cycles[];
+extern unsigned long long mtime64_public(void);
 #include <wifinet.h>                /* WiFi para las apps: escanear y asociar     */
 
 #include "lvgl/lvgl.h"              /* la libreria: 'lvgl.h' a secas es el device,
@@ -130,6 +134,10 @@ static const struct export exports[] = {
     { "mdelay", (void *)mdelay },
     { "udelay", (void *)udelay },
     { "clkcount", (void *)clkcount },
+    /* CPU% real para apps (monitor de tareas): ciclos mtime acumulados por
+     * ctxsw en resched.c y lectura de mtime de 64 bits. */
+    { "mtime64_public", (void *)mtime64_public },
+    { "cpu_cycles", (void *)cpu_cycles },
 
     /* ---------------- Sincronizacion ---------------- */
     { "semcreate", (void *)semcreate },

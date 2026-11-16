@@ -26,6 +26,7 @@ struct taskmon_row
     unsigned long stk_peak;     /* bytes de pila usados como maximo           */
     unsigned long stk_total;    /* bytes de pila reservados                   */
     int elf_task;               /* 1 si la tarea corre un app ELF             */
+    int cpu;                    /* nucleo donde ejecuta (cpu_home/cpu_last)   */
     char name[TASKMON_NAME];
 };
 

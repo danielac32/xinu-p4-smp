@@ -413,11 +413,12 @@ shellcmd xsh_smp(int nargs, char *args[])
     if (strncmp(args[1], "status", 7) == 0)
     {
         extern volatile uint32 core1_ticks;
+        extern volatile uint32 core1_timer_irq_count;
         printf("core0: current=%d readyq=%d nest=%d resdef=%d\n",
                percpu[0].current, percpu[0].readyq, percpu[0].nest, percpu[0].resdef);
-        printf("core1: current=%d readyq=%d nest=%d resdef=%d idle=%d ticks=%u\n",
+        printf("core1: current=%d readyq=%d nest=%d resdef=%d idle=%d ticks=%u irq=%u\n",
                percpu[1].current, percpu[1].readyq, percpu[1].nest, percpu[1].resdef,
-               percpu[1].idle, (unsigned)core1_ticks);
+               percpu[1].idle, (unsigned)core1_ticks, (unsigned)core1_timer_irq_count);
         return 0;
     }
     if (strncmp(args[1], "test", 5) == 0)

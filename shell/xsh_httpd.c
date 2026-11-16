@@ -368,7 +368,7 @@ static thread httpdReleaser(int dev)
 
 static void httpdRelease(int dev)
 {
-    tid_typ tid = create_on(1, (void *)httpdReleaser, MINSTK, INITPRIO,
+    tid_typ tid = create_on(0, (void *)httpdReleaser, MINSTK, INITPRIO,
                             "httpdRel", 1, dev);
 
     if (SYSERR == tid)
@@ -561,7 +561,11 @@ shellcmd xsh_httpd(int nargs, char *args[])
     }
     httpdRunning = 1;
 
-    tid = create_on(1, (void *)httpdServer, HTTPD_STK, INITPRIO, "httpd", 2,
+    /* SMP: balanceo con afinidad estatica.  httpd va a core0 para descargar
+     * core1 (que ya lleva launcher + netboot + netRecv + telnet).  Con
+     * s_tx_lock en espHosted y el BKL en la pila de red, TX/RX de ambos cores
+     * estan serializados sin corromper tramas. */
+    tid = create_on(0, (void *)httpdServer, HTTPD_STK, INITPRIO, "httpd", 2,
                      descrp, port);
     if (SYSERR == tid)
     {

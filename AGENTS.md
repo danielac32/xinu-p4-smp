@@ -105,9 +105,76 @@ Las repite y son vinculantes:
 Dispositivos montados y validados en placa: consola serial, `gpio`, `i2c0` con su
 monitor de bus, `touch0` (FT6336U, con demo de coordenadas), `power` (AXP2101,
 **solo lectura**: escribir 0x10/0x80 puede tumbar la placa), `lcd`, `sd`+fat32 con
-la microSD de 60 GB, y `audio0` (ver §5). El segundo núcleo HP (core1) está
-**aparcado formalmente** y no ejecuta nada: su diseño está en `README_CORE1.md`,
-sección 4 dibujada pero no implementada.
+la microSD de 60 GB, y `audio0` (ver §5). El segundo núcleo HP (core1) **sí
+ejecuta tareas**: SMP real con BKL (`disable()/restore()`) + afinidad fija,
+dos colas de listos e IPI (ver `docs/port-esp32p4/08-smp.md`). En el núcleo
+corren `netRecv`/red (ETH0), el `launcher`, `lvglui` y los daemons; `ps` muestra la
+columna CPU. `xsh smp stress` es el banco de regresión (sleep/sem/msg/mem/fat/
+mixed en ambos cores): al 2026-11-16 da **OK (0 fallos)**.
+
+Trabajo SMP-safe aplicado el 2026-11-16 (validado con `smp stress` + ping):
+- `core1smp.c`: tick de core1 por **única** fuente (IRQ de timer; se eliminó
+  el sondeo duplicado), `need_resched`/`readyq` bajo BKL, busy-loop `nop` (el
+  `wfi` colgaba el arranque de LVGL en silicio).
+- `riscvclk.c` + `clkhandler.c`: `clkupdate1()` y contadores `cpu_ticks` bajo BKL.
+- `kill.c` + `create.c`: kill remoto con IPI; reuso de slot limpia `stk_pad`/`elf_*`.
+- `elfload.c`: `elf_cache_sync()` (registros CACHE globales) y publicación de
+  `elf_*`/`elf_actual` bajo BKL.
+- `ld.script`: `.core1stk` 2 KB → 8 KB.
+- `i2cRead.c`: monitor `i2cmon` restaurado; `espHosted.c`: `s_tx_seq_num` bajo BKL.
+
+Arreglos SMP-safe de apps/red (2026-11-16, validados con `smp stress` + HTTP
+concurrente + ping + lanzar/cerrar app):
+- `arpLookup.c`: `restore(im)` en la rama ARP_RESOLVED (fuga de BKL en cada
+  envio -> congelaba el otro core; **causa del lag de red**).
+- `espHosted.c`: monitor `s_tx_lock` unico para datos+RPC (antes `tx_frame` de
+  2 KB se compartia entre core1 y core0 y se intercalaban tramas).
+- `appmgr.c`: BKL en las 12 funciones; `take_foreground` atomico.
+- `launcher.c`: `ui_buttons_clear()` antes de `scan_apps()` (evita renderizar
+  pixeles de iconos ya liberados por `free_app_icons`).
+- `launcher.elf` recompilado y subido a `/apps/launcher/launcher.elf`.
+
+**Concurrencia real verificada:** 12/12 peticiones HTTP (httpd en core1) en
+paralelo con 10/10 pings (shell en core0), 0% perdida, 0 traps.
+
+Pendiente SMP-safe (auditoría, no explotado hoy): `bufget()` hace `wait()` bajo
+BKL (fragilidad; el handoff de `resched` lo salva), `s_ctrl`/`s_ctx.tx_frame` de
+esp_hosted sin lock común, lecturas de `thrtab[]` en `taskmon/ps` sin BKL,
+`panicstk` global y CLIC de core1 sin `clic_init()` completo.
+
+**Tick PREEMPTIVO de core1 (2026-11-16, validado):** mtimecmp1 no entrega
+IRQ en este P4, pero el SYSTIMER target1 si (port de lk-esp32p4
+platform/esp32p4/platform.c). `core1smp.c` habilita los clocks del SYSTIMER,
+programa target1 (fuente ETS 54 -> linea CLIC 30, **attr SHV 0x01** para que
+Xinu despache por p4_irq_entry -> interruptVector[30]) y llama a clkhandler
+en core1. `smp status` muestra `irq=` creciendo y `ticks=0` (sondeo ya no
+cuenta). Una tarea cpu-bound en core1 AHORA es interrumpida (preempcion real).
+Offsets correctos: int_ena 0x64, int_clr 0x6C (los 0x54/0x5C de un intento
+anterior estaban mal y no disparaba). El sondeo queda solo como respaldo si
+irq==0. smp stress OK (0 fallos), 0 traps.
+
+**App tareas rediseñada (2026-11-16):** monitor.c estilo Material (tarjetas
+elevadas, chip de estado coloreado, barra de CPU proporcional, app bar, detalle
+sin fade). Muestra el nucleo (`taskmon_row.cpu`, añadido en taskmon.h/c desde
+`cpu_last`). `cpu_cycles`/`mtime64_public` exportados en exports.c para que la
+app lea el % real. MATAR con doble toque y proteccion de idle (tid 0/1). Sin
+banner WiFi (eso es solo del launcher). Validado: 502 relocaciones, 0 traps,
+35s de refrescos sin crash, smp stress OK.
+
+**Balanceo y CPU% (2026-11-16):** afinidad estatica: httpd/udpserver movidos
+de core1→core0 (core1 lleva launcher+netboot+netRecv+telnet). `ps` ahora mide
+CPU% real con ventana de 1s sobre `cpu_cycles[]` acumulados en ciclos mtime
+al hacer ctxsw (`resched.c`), resolucion de ciclo: tareas I/O-bound (UI/red)
+muestran % fiel. Limitacion: una tarea cpu-bound puro que nunca hace ctxsw no
+se mide (no hay timer preemptivo en core1; mtimecmp1 no da IRQ, el tick es por
+sondeo en core1_idle). `core1_ticks` vuelve a avanzar (sondeo restaurado como
+unica fuente; clkhandler core1 solo replanifica). `smp stress` OK (0 fallos).
+
+**Migracion entre cores: NO implementada.** No existe `setaffinity()` ni
+migracion en caliente; `THRMIGRATE` es una constante sin codigo. `cpu_home` se
+fija al crear y nunca cambia. 'Mover' con suspend/resume deja la hebra corriendo
+en un core y encolada en otro con el mismo stack -> doble ctxsw -> crash. Opcion
+adoptada: afinidad explicita con `create_on(core,...)` al crear cada tarea/app.
 
 Set de regresión mínimo antes de dar nada por cerrado:
 
